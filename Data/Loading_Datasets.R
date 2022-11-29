@@ -20,3 +20,7 @@ main_data <- read_excel("C:/Users/kyle.chauvin/OneDrive - PetIQ, LLC/Personal/Me
 write_feather(main_data, "Data/Media_Campaign_Dataset_Feather")
 
 
+# https://www.kaggle.com/datasets/mirichoi0218/insurance
+main_data2 <- read_excel("C:/Users/kyle.chauvin/OneDrive - PetIQ, LLC/Personal/Medical_Cost_Data.xlsx")
+
+write_feather(main_data2, "Data/Medical_Cost_Dataset_Feather")
