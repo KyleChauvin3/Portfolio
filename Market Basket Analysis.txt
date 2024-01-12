@@ -1,0 +1,188 @@
+# rm(list = ls())
+# QUERY_START_TIME <- Sys.time()
+# options(scipen = 100);options(max.print = 10000)
+# library(readxl);library(dplyr);library(caret);library(ggplot2);library(lattice);library(rpart);library(lubridate);
+# library(Metrics);library(glmnet);library(Matrix);library(caret);library(kableExtra);library(class);library(openxlsx);
+# library(gmodels);library(MASS);library(reshape2);library(tidyr);library(ggpubr);library(tibble);library(stringr);
+# library(sqldf);library(car);library(ggpubr);library(tidyverse);library(stringr);library(data.table);library(readxl);
+# library(factoextra);library(writexl); library(cluster);library(corrplot);library(tidyverse);library(mapsapi);library(lmtest)
+# library(dbplyr);library(DBI);library(odbc);library(xgboost);library(gridExtra);library(tidyverse);library(keras);
+# library(arrow);library(tidymodels);library(doFuture);library(vip);library(gdata);library(xml2);library(tensorflow);
+# library(tseries);library(zoo);library(forecast);library(tidyverse);library(tidymodels);library(modeltime);library(timetk);
+# library(moments);
+# ################################################################################################################
+# set.seed(123)
+# par(mfrow=c(2,2))
+# 
+# library(arules)
+# library(arulesViz)
+# library(datasets)
+# library(aqp)
+# 
+# db_connection <- DBI::dbConnect(odbc::odbc(),
+#                                 Driver="SNowflakeDSIIDriver",
+#                                 Server="va71008.east-us-2.azure.snowflakecomputing.com",
+#                                 Database="PIQ_ANALYTICS_WORKSPACE",
+#                                 SCHEMA="DEV",
+#                                 UID="Kyle.Chauvin@petiq.com",
+#                                 role="DATAANALYST",
+#                                 authenticator="externalbrowser",
+#                                 WAREHOUSE="PIQWH_ANALYTICS")
+# 
+# main_data_source <- DBI::dbGetQuery(db_connection,"SELECT * FROM KC_MARKET_BASKET_ANALYSIS")
+main_data <- as.data.frame(main_data_source)
+
+main_data$DATE <- as.Date(main_data$DATE)
+main_data$VACCERT_ID <- as.factor(main_data$VACCERT_ID)
+main_data$OFFICE_TYPE <- as.factor(main_data$OFFICE_TYPE)
+main_data$REGION <- as.factor(main_data$REGION)
+main_data$PRODUCT_ID <- as.factor(main_data$PRODUCT_ID)
+main_data$ITEM <- as.factor(main_data$ITEM)
+str(main_data)
+nrow(main_data)
+main_data <- main_data %>% filter(OFFICE_TYPE == 'Community Clinic' & 
+                                    DATE >= '2023-07-01' & 
+                                    DATE < '2023-11-28')
+nrow(main_data)
+
+######################
+### Visualizations ###
+######################
+# viz1 <- main_data %>%
+#   group_by(ITEM) %>%
+#   summarize(Count = n()) %>%
+#   arrange(desc(Count)) %>%
+#   top_n(10)%>%
+#   ggplot(aes(x = reorder(ITEM, Count), y = Count, fill = ITEM)) +
+#   geom_bar(stat = 'identity') +
+#   geom_text(aes(label=Count), hjust=1)+
+#   coord_flip() +
+#   ggtitle('Most popular line items') +
+#   theme(legend.position = "none")
+# viz1
+# 
+# viz2 <- main_data %>%
+#   group_by(DATE) %>%
+#   summarise(Count = n()) %>%
+#   mutate(Day = wday(DATE)) %>%
+#   ggplot(aes(x = DATE, y = Count, fill = Day)) +
+#   geom_bar(stat = "identity") +
+#   ggtitle("Line items sold per day")
+# viz2
+# 
+# items <- main_data %>%
+#   mutate(Day = lubridate::wday(DATE,label = T)) %>%
+#   group_by(Day) %>%
+#   summarise(Count = n())
+# 
+# unique_transactions <- main_data %>%
+#   mutate(wday = lubridate::wday(DATE,label = T)) %>%
+#   group_by(wday, VACCERT_ID) %>%
+#   summarise(n_distinct(VACCERT_ID)) %>%
+#   summarise(Count = n())
+# 
+# overall <- data.frame(items, unique_transactions[2], items[2] / unique_transactions[2])
+# colnames(overall) <- c("Day", "Line", "Unique", "Items.Trans")
+# 
+# ggplot(overall, aes(x = Day, y = Items.Trans, fill = Day)) +
+#   geom_bar(stat = "identity") +
+#   ggtitle("Total unique transactions per weekday") +
+#   theme(legend.position = "none") +
+#   geom_text(aes(label = round(Items.Trans, 1)), vjust = 2)
+
+##############################
+### Market Basket Analysis ###
+##############################
+
+transaction_data <- main_data[,c(4,6)]
+head(transaction_data)
+
+dir.create(path = "tmp", showWarnings = FALSE)
+
+write.csv(transaction_data, "./tmp/temp_transactions.csv")
+
+data <- read.transactions(
+  file = "./tmp/temp_transactions.csv",
+  format = "single",
+  sep = ",",
+  cols=c("VACCERT_ID","ITEM"),
+  header = TRUE,
+  rm.duplicates = T
+)
+
+summary(data)
+
+
+# Initial values
+suplvl <- c(0.1, 0.05, 0.01, 0.005, 0.001)
+conflvl <- c(0.9, 0.8, 0.7, 0.6, 0.5)
+
+# blank integers 
+rules_s10 <- integer(length = 5)
+rules_s5 <- integer(length = 5)
+rules_s1 <- integer(length = 5)
+rules_s0.5 <- integer(length = 5)
+rules_s0.1 <- integer(length = 5)
+
+# Apriori algorithm : support level of 10%
+for (i in 1:length(conflvl)) {
+  rules_s10[i] <- length(apriori(data, parameter = list(sup = suplvl[1], 
+                                                        conf = conflvl[i], target = "rules")))
+}
+
+# Apriori algorithm : support level of 5%
+for (i in 1:length(conflvl)){
+  rules_s5[i] <- length(apriori(data, parameter = list(sup = suplvl[2], 
+                                                       conf = conflvl[i], target = "rules")))
+}
+
+# Apriori algorithm : support level of 1%
+for (i in 1:length(conflvl)){
+  rules_s1[i] <- length(apriori(data, parameter = list(sup = suplvl[3], 
+                                                       conf = conflvl[i], target = "rules")))
+}
+
+# Apriori algorithm : support level of 0.5%
+for (i in 1:length(conflvl)){
+  rules_s0.5[i] <- length(apriori(data, parameter = list(sup = suplvl[4], 
+                                                         conf = conflvl[i], target = "rules")))
+}
+
+# Apriori algorithm : support level of 0.1%
+for (i in 1:length(conflvl)){
+  rules_s0.1[i] <- length(apriori(data, parameter = list(sup = suplvl[5], 
+                                                         conf = conflvl[i], target = "rules")))
+}
+
+# Data frame
+num_rules <- data.frame(rules_s10, rules_s5, rules_s1, rules_s0.5, rules_s0.1, conflvl)
+num_rules
+# Count of rules found with a support level of 10%, 5%, 1% and 0.5%
+ggplot(data=num_rules, aes(x=conflvl)) +
+  geom_line(aes(y=rules_s10, colour="Support level of 10%")) + 
+  geom_point(aes(y=rules_s10, colour="Support level of 10%")) +
+  geom_line(aes(y=rules_s5, colour="Support level of 5%")) +
+  geom_point(aes(y=rules_s5, colour="Support level of 5%")) +
+  geom_line(aes(y=rules_s1, colour="Support level of 1%")) + 
+  geom_point(aes(y=rules_s1, colour="Support level of 1%")) +
+  geom_line(aes(y=rules_s0.5, colour="Support level of 0.5%")) +
+  geom_point(aes(y=rules_s0.5, colour="Support level of 0.5%")) +
+  geom_line(aes(y=rules_s0.1, colour="Support level of 0.1%")) +
+  geom_point(aes(y=rules_s0.1, colour="Support level of 0.1%")) +
+  labs(x="Confidence levels", y="Count of rules found", 
+       title="Apriori algorithm with different support levels")
+
+final_rules <- apriori(data,parameter = list(sup=suplvl[4],conf=conflvl[5],target="rules"))
+inspect(final_rules)
+
+Ordered <- sort(final_rules, decreasing=TRUE,by="confidence")
+inspect(Ordered)
+
+# 2023 H2
+# lhs                                                  rhs                                      support     confidence coverage    lift     count
+# [1] {NexGard 10.1-24lbs (Blue) 1-Dose, Puppy Visit 2} => {Heartgard Plus 0-25lbs (Blue) 1-Dose}   0.006024701 0.7393089  0.008149098 19.31974 2161 
+# [2] {NexGard 10.1-24lbs (Blue) 1-Dose}                => {Heartgard Plus 0-25lbs (Blue) 1-Dose}   0.012512197 0.7016886  0.017831554 18.33664 4488 
+# [3] {NexGard 24.1-60lbs (Purple) 1-Dose}              => {Heartgard Plus 26-50lbs (Green) 1-Dose} 0.008486437 0.6232596  0.013616215 40.95200 3044 
+# [4] {Nexgard 4-10lbs (Orange) 1-Dose}                 => {Heartgard Plus 0-25lbs (Blue) 1-Dose}   0.007761577 0.6164748  0.012590259 16.10982 2784 
+# [5] {Heartgard Plus 26-50lbs (Green) 1-Dose}          => {NexGard 24.1-60lbs (Purple) 1-Dose}     0.008486437 0.5576113  0.015219270 40.95200 3044 
+# [6] {Tri-Heart Plus 51-100lb Brown 6Mo}               => {Choice Dog Pack}                        0.006783016 0.5003085  0.013557668  3.24554 2433 
